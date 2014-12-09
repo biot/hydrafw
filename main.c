@@ -22,10 +22,6 @@
 #include "ch.h"
 #include "hal.h"
 
-#include "chprintf.h"
-
-#include "ff.h"
-
 #include "common.h"
 
 #include "usb1cfg.h"
@@ -41,6 +37,7 @@ SerialUSBDriver SDU2;
 
 extern t_token tl_tokens[];
 extern t_token_dict tl_dict[];
+extern char log_dest[];
 
 // create tokenline objects for each console
 t_tokenline tl_con1;
@@ -82,9 +79,89 @@ int div_test(int a, int b)
 }
 volatile int a, b, c;
 
+static t_hydra_console *find_console(SerialUSBDriver *sdu)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(consoles); i++) {
+		if (consoles[i].sdu == sdu)
+			return &consoles[i];
+	}
+
+	return NULL;
+}
+
+static size_t con_write(void *ip, const uint8_t *bp, size_t n)
+{
+	t_hydra_console *con;
+
+	con = find_console(ip);
+	if (!con)
+		return n;
+	if (*log_dest) {
+		log_add(con, (char *)bp, n);
+	}
+
+	return con->orig_vmt->write(ip, bp, n);
+}
+
+static size_t con_writet(void *ip, const uint8_t *bp, size_t n, systime_t timeout)
+{
+	t_hydra_console *con;
+
+	con = find_console(ip);
+	if (!con)
+		return n;
+	if (*log_dest) {
+		log_add(con, (char *)bp, n);
+	}
+
+	return con->orig_vmt->writet(ip, bp, n, timeout);
+}
+
+static msg_t con_put(void *ip, uint8_t b)
+{
+	t_hydra_console *con;
+
+	con = find_console(ip);
+	if (!con)
+		return MSG_OK;
+	if (*log_dest) {
+		log_add(con, (char *)&b, 1);
+	}
+
+	return con->orig_vmt->put(ip, b);
+}
+
+static msg_t con_putt(void *ip, uint8_t b, systime_t timeout)
+{
+	t_hydra_console *con;
+
+	con = find_console(ip);
+	if (!con)
+		return MSG_OK;
+	if (*log_dest) {
+		log_add(con, (char *)&b, 1);
+	}
+
+	return con->orig_vmt->putt(ip, b, timeout);
+}
+
+static void patch_console(t_hydra_console *con)
+{
+	con->orig_vmt = con->sdu->vmt;
+	memcpy(&con->log_vmt, con->sdu->vmt, sizeof(struct SerialUSBDriverVMT));
+	con->sdu->vmt = &con->log_vmt;
+	con->log_vmt.write = con_write;
+	con->log_vmt.writet = con_writet;
+	con->log_vmt.put = con_put;
+	con->log_vmt.putt = con_putt;
+}
+
 int main(void)
 {
-	int sleep_ms, i;
+	unsigned int i;
+	int sleep_ms;
 
 	/*
 	 * System initializations.
@@ -136,12 +213,15 @@ int main(void)
 	/* Wait for USB Enumeration. */
 	chThdSleepMilliseconds(100);
 
+	for (i = 0; i < ARRAY_SIZE(consoles); i++)
+		patch_console(&consoles[i]);
+
 	/*
-	* Normal main() thread activity.
-	*/
+	 * Normal main() thread activity.
+	 */
 	chRegSetThreadName("main");
 	while (TRUE) {
-		for (i = 0; i < 2; i++) {
+		for (i = 0; i < ARRAY_SIZE(consoles); i++) {
 			if (!consoles[i].thread) {
 				if (consoles[i].sdu->config->usbp->state != USB_ACTIVE)
 					continue;

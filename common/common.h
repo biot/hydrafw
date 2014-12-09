@@ -24,6 +24,7 @@
 #include "ch.h"
 #include "chprintf.h"
 #include "hal.h"
+#include "serial_usb.h"
 #include "tokenline.h"
 #include "commands.h"
 #include "mode_config.h"
@@ -129,6 +130,8 @@ typedef struct hydra_console {
 	t_tokenline *tl;
 	t_mode_config *mode;
 	int console_mode;
+	struct SerialUSBDriverVMT log_vmt;
+	const struct SerialUSBDriverVMT *orig_vmt;
 } t_hydra_console;
 
 enum console_modes {
@@ -152,6 +155,9 @@ int mode_exit(t_hydra_console *con, t_tokenline_parsed *p);
 int cmd_show(t_hydra_console *con, t_tokenline_parsed *p);
 int cmd_debug_timing(t_hydra_console *con, t_tokenline_parsed *p);
 int cmd_sd(t_hydra_console *con, t_tokenline_parsed *p);
+bool log_open(t_hydra_console *con);
+bool log_add(t_hydra_console *con, char *text, int text_len);
+void log_close(void);
 int cmd_adc(t_hydra_console *con, t_tokenline_parsed *p);
 int cmd_gpio(t_hydra_console *con, t_tokenline_parsed *p);
 void token_dump(t_hydra_console *con, t_tokenline_parsed *p);
